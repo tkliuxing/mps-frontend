@@ -1,0 +1,41 @@
+.header{
+    color: #47484B;
+    background-color: #fff;
+}
+.login-wrap{
+    background: #fff;
+}
+.plugins-tips{
+    background: #eef1f6;
+}
+.plugins-tips a{
+    color: #20a0ff;
+}
+.el-upload--text em {
+    color: #20a0ff;
+}
+.pure-button{
+    background: #20a0ff;
+}
+.tags-li.active {
+    border: 1px solid #409EFF;
+    background-color: #409EFF;
+}
+.message-title{
+    color: #20a0ff;
+}
+.collapse-btn:hover{
+    background: #7cd3ff;
+    color: #FFF;
+}
+.btn-bell-badge{
+    background: #f56c6c;
+    color: #47484B;
+}
+.btn-bell .el-icon-bell{
+    color: #47484B;
+}
+
+.header .el-dropdown-link{
+    color: #47484B;
+}

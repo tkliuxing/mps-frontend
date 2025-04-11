@@ -1,0 +1,239 @@
+<template>
+  <el-form class="formStyle"  :model='form' ref="form" label-width="100px" :rules="rules" status-icon>
+      <el-row type="flex" style="flex-wrap:wrap">
+          <% field.forEach(function(i){ if (!i.is_required ||i.is_related) {
+              return ''
+          } %>
+          <el-col :span="12">
+              <el-form-item label="<%= i.col_title %>" prop="<%= i.alias %>"
+              <% if(!i.rules) { %> :rules="[{
+                      required: false,
+                      message: '<%= i.local_data_source ? '请选择' : ['file', 'image'].includes(i.widget) ? '请上传' : '请输入' %><%= i.col_title %>',
+                      trigger: 'blur'
+                      }]" <% } %>>
+                  <% if(i.widget_str){ %><%- i.widget_str -%><% } %>
+              </el-form-item>
+          </el-col>
+          <% }) %>
+      </el-row>
+  </el-form>
+</template>
+<script>
+  import FormModel from "./model.js";
+  /**
+
+   * Has_Is_Cache:是否
+   * @type {boolean}
+   */
+  const Has_Is_Cache = true; // 是否开启缓存
+
+  <% if(has_ueditor){ %>import VueUeditorWrap from 'vue-ueditor-wrap';
+  import editorConfig from '@/ueditorConfig';<% } %>
+  import {mapState} from "vuex";
+  import {verifyMobile, verifyEmail, verifyIdCard} from "@/utils/verify.js"
+  import mixin from './mixin';
+  export default {
+    name: "<%= EN_NAME %>Form",
+    <% if(has_ueditor){ %>components: {'vue-ueditor-wrap': VueUeditorWrap},<% } %>
+    mixins: [mixin],
+    props: {
+      currentform: Object, // 传过来的
+      readonly: {
+        type: Boolean,
+        default: false
+      },
+      <%if(alias){%>
+        <%= alias %>: {
+          type: String,
+          default: ''
+        },
+       <%}%>
+    },
+    computed: {
+      ...mapState(['userinfo']),
+    },
+    data() {
+      return {
+        <% if(has_ueditor){ %>editorConfig: {...editorConfig, autoHeightEnabled: false},<% } %>
+        form: new FormModel(),
+        rules: {
+          <% field.forEach(function(i){ if(i.rules){%><%= i.alias %>:<%- JSON.stringify(i.rules) %>,
+          <% }}) %>
+        },
+        verifyMobile,
+        verifyEmail,
+        verifyIdCard,
+        cache_state: false, // 控制业务逻辑是否启用缓存
+        cache_key: null, // 缓存键值对的key
+  }
+    },
+    // 监听form的变化,并缓存
+    watch: {
+      form: {
+        handler(newVal, oldVal) {
+          // 当 form 对象发生变化时执行的逻辑
+          this.cacheSave();
+        },
+        deep: true,
+        immediate: true
+      },
+      <% if (alias) { %>
+      <%= alias %>: {
+        async handler(newVal, oldVal) {
+          // 当 form 对象发生变化时执行的逻辑
+          this.form.<%= alias %> = newVal;
+          // 用于区分是编辑还是新增
+          if (this.currentform && this.currentform.pk == null) return;
+          let obj = await this.$resource.getList('data', { template_id: this.TEMPLATE_ID, <%= alias %>: this.<%= alias %> });
+          if (obj.length > 0) {
+            this.form = new FormModel(obj[0]);
+          }
+        },
+        deep: true,
+        immediate: true
+      },
+      <% } %>
+    },
+    async created() {
+      <% if (alias) { %>if (this.<%= alias %>) {
+            this.form.<%= alias %> = this.<%= alias %>;
+       }<% } %>
+    this.cache_key = this.userinfo.pk + "from" + this.$route.path; // 给缓存的key赋值
+      if(this.$route.query && this.$route.query.pk != 'new'){
+        let row = await this.$resource.getObj('data',this.$route.query.pk,{template_id:this.TEMPLATE_ID })
+        this.form = new FormModel(row);
+
+        // 这个判断用于导入数据后,编辑事件回显用的
+      } else if (this.currentform && this.currentform.template_id){
+        this.form = {...this.currentform}
+      } else{
+        this.cache_state = true;
+        this.cacheForm();
+      }
+    },
+    mounted() {
+        <% field.forEach(function(e){%><% if(e.mounted_js){%>
+      // <%= e.col_title %>:<%= e.alias %> 的附加 mounted_js
+        <%- e.mounted_js %>
+        <%} %><%}) %>
+    },
+    methods: {
+      async submit(){
+        const debouncedSubmit = this.debounce(this.saveForm, 500); // 创建防抖函数
+        debouncedSubmit(); // 调用防抖函数
+      },
+      async saveForm() {
+        if (!this.$refs.form) return;
+        const loading = this.$loading({
+          lock: true,
+          text: '提交中...',
+          spinner: 'el-icon-loading',
+          background: 'rgba(255, 255, 255, 0.5)'
+        });
+        try {
+          let valid = await new Promise(resolve => this.$refs.form.validate(validate => resolve(validate)));
+          if (valid) {
+              <% if (has_file || has_image) { %>
+            // 如果使用上传图片和文件组件,记得把'mps-pc-components' 组件库升级到 '1.1.7'
+              <% field.forEach(function(i) { if (['file', 'image'].includes(i.widget)) { %>
+            let <%= i.alias%> = await this.$refs.child<%= i.alias %>.submits();
+            // 可根据返回值判断附件上传是否成功
+            if(<%= i.alias%> && <%=i.alias %>.status == 'error') return this.$message.warning('附件上传失败，请重新上传')
+              <% } }) %>
+              <% } %>
+            await FormModel.save(this.form);
+            this.$message.success("操作成功!")
+            this.cache_state = false; // 关闭缓存
+            this.cacheRemove(this.cache_key); // 提交成功后清除缓存
+            this.$emit('saved',true); // 触发父组件的刷新事件
+          }
+        }catch (e) {
+          if(e && e.response && e.response.data && e.response.data.non_field_errors[0]){
+            this.$message.error(e.response.data.non_field_errors[0])
+          }else{
+            this.$message.error("操作失败!")
+          }
+        }
+        loading.close()
+      },
+      debounce (func, delay) {
+        let timer = null;
+        return () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            func.apply(this, arguments);
+          }, delay);
+        };
+      },
+      /**
+       * cacheForm:读取缓存，缓存form表单
+       * Has_Is_Cache:为true时读取，否则return
+       */
+      cacheForm() {
+        if (!Has_Is_Cache) return;
+        let cacheFrom = localStorage.getItem(this.cache_key);
+        let flag = true;
+        let cacheFromObj = null;
+        if(cacheFrom){
+          cacheFromObj = new FormModel(JSON.parse(cacheFrom));
+          flag = Object.values(cacheFromObj).every(value => !value);
+        } else {
+          return;
+        }
+        if(flag){
+          this.cacheRemove(this.cache_key);
+          return;
+        }
+        // 如果有缓存，则提示是否继续编辑
+        this.$confirm('系统识别有未保存信息, 是否继续编辑?', '提示', {
+          confirmButtonText: '确定',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }).then(() => {
+          this.form = cacheFromObj;
+          this.$message({
+            type: 'success',
+            message: '填充成功!'
+          });
+        }).catch(() => {
+          this.cacheRemove(this.cache_key);
+        });
+      },
+      /**
+       * cacheSave:缓存数据
+       * Has_Is_Cache && this.cache_state:有一个是false 则不缓存数据
+       */
+      cacheSave() {
+        if (!Has_Is_Cache) return;
+        if(!this.cache_state) return;
+        if(!this.cache_key){
+          this.cache_key = this.userinfo.pk + "from" + this.$route.path;
+        }
+        localStorage.setItem(this.cache_key, this.form.toJSON())
+      },
+      /**
+       * key:要删除的缓存key
+       * @param key
+       * 清楚缓存
+       */
+      cacheRemove(key) {
+        localStorage.removeItem(key);
+      },
+      <% field.forEach(function(e){ if(e.method_js){%>
+      // <%= e.col_title %>:<%= e.alias %> 的附加 method
+      <%- e.method_js %>,<%}}) %>
+    },
+
+  }
+</script>
+<style scoped>
+  .formStyle ::v-deep .el-form-item__label{
+    font-size: 16px;
+    color: #76767E;
+    font-weight: 600;
+  }
+  .el-form-item{
+    margin-bottom: 22px !important;
+    margin: 10px 0;
+  }
+</style>

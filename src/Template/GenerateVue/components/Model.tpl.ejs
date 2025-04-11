@@ -1,0 +1,145 @@
+import resource from '@/resource'
+import { TEMPLATE_ID } from "./mixin.js";
+import store from "@/store";
+class FormModel{
+  pk = null
+  <% field.forEach(function(i){ %>
+  <%= i.alias %> = <% if(i.col_name.endsWith('field') || i.col_name.endsWith('_id')){ %>''<% }else{ %>null<% }}) %>
+
+  constructor(params) {
+    if(params instanceof FormModel) return params;
+    if(params){
+      Object.assign(this, params);
+    }
+    this.TEMPLATE_ID = TEMPLATE_ID;
+    // 如需解析原始数据中的字段请在此添加转换逻辑
+    // 示例： 如：try{this.json_data =this.json_field ? JSON.parse(this.json_field) : []}catch(e){this.json_data = this.json_data ? this.json_data : []}
+  }
+
+  // 序列化提交的数据
+  serialize() {
+    let data = {
+      <% field.forEach(function(i){ %>
+      <%= i.alias %>: this.<%= i.alias %>,<% }) %>
+    };
+    data.template_id = this.TEMPLATE_ID;
+    // 如需序列化提交的数据请在此添加转换逻辑
+    // 示例： 如：data.json_field = this.json_data ? JSON.stringify(this.json_data) : null;
+
+
+    if(!this.pk){
+        // 获取当前日期和时间
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = now.getMonth() + 1; // 月份从0开始，因此需要加1
+        const day = now.getDate();
+        const hours = now.getHours();
+        const minutes = now.getMinutes();
+        const seconds = now.getSeconds();
+        const currentTime = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+        data.create_time = currentTime;
+        data.user_id = store.state.userinfo.pk;
+        data.dep_id = store.state.userinfo.department;
+    }
+    // 如果有pk则为编辑, 否则为新建, 新建时不需要传pk
+    if(this.pk){
+      data.pk = this.pk;
+    }
+    return data;
+  }
+
+  // 转换为JSON字符串，一般用来缓存
+  toJSON(){
+    let data = this.serialize();
+    return JSON.stringify(data);
+  }
+
+  // 保存数据, 无pk则为新建, 有pk则为编辑, 返回保存后的数据
+  async save(){
+    let resp = null;
+    if(this.pk){
+      resp = await resource.updateObj('data', this.pk, {template_id: this.TEMPLATE_ID, ...this.serialize()});
+    } else {
+      resp = await resource.createObj('data', {template_id: this.TEMPLATE_ID, ...this.serialize()});
+    }
+    return resp
+  }
+
+  // 删除本条数据
+  async delete(){
+    if(!this.pk){
+      throw new Error('无法删除未保存的数据');
+    }
+    await resource.deleteObj('data', this.pk,{template_id: this.TEMPLATE_ID});
+  }
+
+}
+
+
+// 获取列表数据
+FormModel.getList = async function(params){
+  let pp = {
+    template_id: TEMPLATE_ID,
+    o:'<%= sortAlias%>'
+  }
+    if(store.state.userinfo.data_permission && store.state.userinfo.data_permission=='仅自己'){
+        pp.user_id = store.state.userinfo.pk
+    }
+    if(store.state.userinfo.data_permission && store.state.userinfo.data_permission=='本部门'){
+        pp.dep_id = store.state.userinfo.department_child_ids
+    }
+    if (params && params.sortTable) {
+        let sortTable = params.sortTable;
+        if (pp.o) {
+            // 将 pp.o 转换为数组
+            let oArray = pp.o.split(',');
+            // 在oArray中查找是否已经存在类似的 sortTable，如果有则删除
+            let index = oArray.findIndex(i => i === sortTable || i === `-${sortTable}`);
+            if (index > -1) {
+                oArray.splice(index, 1);
+            }
+            // 将 sortTable 插入到数组最前面
+            oArray.unshift(sortTable);
+            pp.o = oArray.join(',');
+            } else {
+                pp.o = sortTable;
+            }
+    }
+  for(let key of Object.keys(params)){
+    if(params && params.sortTable){
+        delete params.sortTable;
+    }
+    const val = params[key];
+    if(val){
+      // 如果值是个数组，则转换为逗号分隔的字符串
+      if(Array.isArray(params[key]) && params[key].length > 0){
+        pp[key] = params[key].join(',');
+        continue;
+      }else{
+        if(typeof val == 'object'){
+            for(let k of Object.keys(val)){
+             pp[`${key}_${k}`] = val[k];
+            }
+           continue;
+        }
+    }
+      pp[key] = params[key];
+    } else if(val === 0){
+      pp[key] = 0;
+    }
+  }
+
+  let resp = await resource.createObj('datafind', pp);
+  if(!resp.data){
+    return resp.map(i => new FormModel(i))
+  }
+  let list = resp.data.map(i => new FormModel(i));
+  return {...resp, data: list};
+}
+// 保存和更新数据
+FormModel.save = async function(data){
+    let model = new FormModel(data);
+    return await model.save();
+}
+
+export default FormModel;

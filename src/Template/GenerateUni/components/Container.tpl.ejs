@@ -1,0 +1,217 @@
+<template>
+  <view>
+    <view v-if="!formDialogVisable">
+      <u-search placeholder="搜索" v-model="searchForm.search" @custom="searchData" @search="searchData"></u-search>
+
+      <view v-if="data.length">
+        <uni-list>
+          <uni-list-item
+            v-for="item in data"
+            ellipsis="1"
+            showArrow
+            :key="item.pk"
+            :title="item.<%= index_form.title %>"
+            <% if(index_form.sub_title) { %>:note="item.<%= index_form.sub_title %>"<% } %>
+            <% if(index_form.right) { %>:rightText="formatTime(item.<%= index_form.right %>)"<% } %>
+          ></uni-list-item>
+        </uni-list>
+      </view>
+
+      <view v-else>
+        <u-empty mode="data" text="暂无数据" icon="http://cdn.uviewui.com/uview/empty/car.png"></u-empty>
+      </view>
+      <u-loadmore v-if="loadingObj.status" margin-top="15" :status="loadingObj.status"/>
+      <view v-show="loading">
+        <u-loading-icon></u-loading-icon>
+      </view>
+    </view>
+    <view v-else>
+      <Form v-model="form" ref="FormComp" @checked="submitForm"></Form>
+    </view>
+  </view>
+</template>
+
+<script>
+// <%= name %>
+// TEMPLATE_ID: <%= pk %>
+// 字段说明:<% field.forEach(function(i){ %>
+// <%= i.alias %>:<%= i.col_title %><% }) %>
+
+import Form from "./Form.vue"
+
+const TEMPLATE_ID = "<%= pk %>";
+
+const FORM = {
+<% field.forEach(function(i){ %><% if(['multipleSelect','checkbox'].includes(i.widget)){ %>  <%= i.alias %>: [],
+<% } else{ %>  <%= i.alias %>: null,
+<% } %><% })%>template_id: TEMPLATE_ID,
+};
+
+export default {
+  name: "",
+  data() {
+    return {
+      form: {
+        ...FORM
+      },
+      searchForm: {
+        search: ''
+      },
+      <% field.forEach(function(e,i){%><% if(e.local_data_source){%><%= e.alias %>_option_data: [],
+      <%} %><%}) %>
+      data: [],
+      loading: false,
+      formDialogVisable: false,
+      page: 1,
+      pageSize: 10,
+      next: false,
+      total: 0,
+      loadingObj: {
+        status: '',
+        current: 1,
+        total: ''
+      },
+    }
+  },
+  onReachBottom(e) {
+    this.loadNext()
+  },
+  // 下拉刷新
+  onPullDownRefresh() {
+    this.page = 1
+    this.data = []
+    this.loadData();
+  },
+  methods: {
+    searchData(){
+      if(!this.searchForm.search){
+        this.loadAll();
+      }else{
+        this.data = [];
+        this.page = 1;
+        this.loadData();
+      }
+    },
+    async loadData() {
+      this.loading = true;
+      let params = {
+        page: this.page,
+        pageSize: this.pageSize,
+        template_id: TEMPLATE_ID
+      };
+      if(this.searchForm.search){
+        params.search = this.searchForm.search;
+      }
+      let res = await this.$resource.getList("data", params);
+      this.data.push(...res.data.data);
+      uni.stopPullDownRefresh(); //停止刷新
+      this.next = res.data.next;
+      this.total = res.data.count;
+      this.loading = false;
+    },
+    loadAll(){
+      this.page = 1;
+      this.data = [];
+      this.loadData();
+    },
+    async submitForm() {
+      for (const key in this.form) {
+        if (this.form[key] !== null && typeof this.form[key] === "object") {
+        this.form[key] = JSON.stringify(this.form[key]);
+        }
+      }
+      try {
+        if (this.form.pk) {
+        await this.$resource.updateObj("data", this.form.pk, {
+          ...this.form,
+          template_id: TEMPLATE_ID
+        });
+        this.$message.success("编辑成功!")
+        } else {
+        await this.$resource.createObj("data", {
+          ...this.form,
+          template_id: TEMPLATE_ID
+        });
+        this.$message.success("新建成功!")
+        }
+        this.formDialogVisable = false;
+        this.loadData()
+      } catch (error) {
+        console.error(error);
+      }
+    },
+    editTable(row) {
+      for (const key in row) {
+        if (row[key] && typeof row[key] === 'string' && row[key].startsWith('[') && row[key].endsWith(']')) {
+        row[key] = JSON.parse(row[key]);
+        }
+      }
+      this.form = {
+        ...row
+      };
+      this.formDialogVisable = true
+    },
+    async delTable(row) {
+      try {
+        await this.$resource.deleteObj("data", row.pk, {
+        template_id: TEMPLATE_ID,
+        sys_id: this.$store.state.sys_id
+        })
+        this.$message.success("删除成功!")
+        this.loadData()
+      } catch (err) {
+        this.$message.error("删除失败!")
+      }
+    },
+    clearForm() {
+      this.form = {
+        ...FORM
+      }
+      this.$refs.FormComp.$refs.form.resetFields();
+    },
+    <% field.forEach(function(e,i){%><% if(e.data_source){%>
+    get_<%= e.alias %>_option_data_display(value){
+      let option = this.<%= e.alias %>_option_data.filter((item)=>{
+        return item.<%- e.value_field %> === value;
+      });
+      return option.length > 0 ? option[0].<%- e.name_field %> : value;
+    },
+    <%} %><%}) %>
+    async getLocalDataSource() {
+      <% field.forEach(function(e,i){%><% if(e.data_source){%>
+      this.<%= e.alias %>_option_data = await this.$resource.getList("<%- e.data_url %>", <%- JSON.stringify(e.params) %>);<%} %><%}) %>
+    },
+    formatTime(time) {
+      if (!time) {
+        return ""
+      }
+      let date = new Date(time);
+      let year = date.getFullYear();
+      // 在日期格式中，月份是从0开始的，因此要加0，使用三元表达式在小于10的前面加0，以达到格式统一  如 09:11:05
+      let month = date.getMonth() + 1 < 10 ? "0" + (date.getMonth() + 1) : date.getMonth() + 1;
+      let day = date.getDate() < 10 ? "0" + date.getDate() : date.getDate();
+      let hours = date.getHours() < 10 ? "0" + date.getHours() : date.getHours();
+      let minutes = date.getMinutes() < 10 ? "0" + date.getMinutes() : date.getMinutes();
+      let seconds = date.getSeconds() < 10 ? "0" + date.getSeconds() : date.getSeconds();
+      // 拼接
+      // return year + "-" + month + "-" + day + " " + hours + ":" + minutes + ":" + seconds;
+      return year + "-" + month + "-" + day + "     " + hours + ":" + minutes;
+    },
+    loadNext() {
+      if (!this.loading && this.next) {
+        this.page++;
+        this.loadData();
+      } else {
+        this.loadingObj.status = 'nomore'
+      }
+    },
+  },
+  async onLoad() {
+    this.loadData()
+    this.getLocalDataSource()
+  },
+  components: {
+    Form,
+  }
+}
+</script>

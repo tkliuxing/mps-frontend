@@ -1,0 +1,63 @@
+
+export const TEMPLATE_ID = "<%= pk %>";
+import {mapState} from "vuex";
+export default {
+  data(){
+    return{
+    <% field.forEach(function(e,i){%><% if(e.local_data_source){%><%= e.alias %>_option_data: [],
+    <%} %><%}) %>
+    TEMPLATE_ID : TEMPLATE_ID,
+    }
+  },
+    computed: {
+    ...mapState(['userinfo'])
+    },
+  async created() {
+    await this.getLocalData_Source();
+  },
+  methods:{
+    getOptionDataDisplay(value_field,name_field,value, columnName) {
+      // 根据列名来获取相应的数据源
+        if(!value) return;
+        if(value && Array.isArray(value) && typeof value == 'object'){
+            return value.join('，')
+        } else if(typeof value == 'string' && value.startsWith('[') && value.endsWith(']') &&  JSON.parse(value).length > 0){
+            let valueArr = JSON.parse(value);
+            let optionData = this[columnName + '_option_data'];
+            let option = optionData.filter((item) => {
+                return valueArr.indexOf(item[value_field]) > -1;
+            });
+            return option.map((item) => {
+                return item[name_field];
+            }).join('，');
+        }else{
+            let optionData = this[columnName + '_option_data'];
+            let option = optionData.filter((item) => {
+                return item[value_field] === value;
+            });
+            return option.length > 0 ? option[0][name_field] : value;
+        }
+    },
+    // 该方法仅用于excel导入时进行数据的转换
+    getImportExcel(data,name_field,value_field,value){
+    //  data 是数据源  name_field 是显示的字段，  value_field 是存储的字段，value 是数据,
+        if(!value) return null;
+            let optionData = this[data + '_option_data'];
+            let option = optionData.filter((item) => {
+            return value.includes(item[name_field])
+        });
+        if(option.length>0){
+        // 返回对应的名称
+            return option.map((item) => {
+            return item[value_field];
+            }).join(',');
+        }else{
+            return false;
+        }
+    },
+    async getLocalData_Source() {
+        <% field.forEach(function(e) { if (e.local_data_source) { %> this.<%= e.alias %>_option_data = await this.$resource.getList("<%- e.data_url %>",<%- JSON.stringify(e.params).replace('"this.userinfo.org_id"', 'this.userinfo.org_id') %>);
+        <% } }) %>
+    },
+  }
+}

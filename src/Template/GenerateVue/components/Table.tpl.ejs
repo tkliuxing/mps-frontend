@@ -1,0 +1,444 @@
+<template>
+    <div >
+        <el-table :height="`${computedHeight}`" @sort-change="sortable" :default-sort = "{prop: '<%=sortAlias.match(/^[^,]*/)[0].replace(/-/g, '') %>'}" :data="data" border stripe :key="tableKey" :cell-style="{textAlign:'center'}" :header-cell-style="{textAlign:'center'}" v-loading="loading" element-loading-spinner="el-icon-loading" element-loading-background="rgba(255, 255, 255, 0.8)" element-loading-text='加载中...' @selection-change="(data)=>batchDelData = data">
+            <el-table-column v-if="batch_del" type="selection"  width="55"></el-table-column>
+            <el-table-column label="序号"  width="100" fixed="left">
+                <template slot-scope="scope">
+                    <span>{{ (page - 1) * pageSize + scope.$index + 1 }}</span>
+                </template>
+            </el-table-column>
+
+            <template v-if="!column_sortable">
+                <% field.forEach(function(i){
+                if (i.widget !== 'ueditor') {
+                if(i.local_data_source){ %>
+                    <el-table-column label="<%= i.col_title %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                        <template slot-scope="{row}">
+                            {{getOptionDataDisplay('<%= i.value_field %>','<%= i.name_field %>',row.<%= i.alias %>,'<%= i.alias %>') }}
+                        </template>
+                    </el-table-column>
+                <% } else if(['image','file'].includes(i.widget)) { %>
+                    <el-table-column label="<%= i.col_title %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                        <template slot-scope="{row}">
+                        <span v-if="row.<%= i.alias %> && row.<%= i.alias %>.length>0">
+                            <el-button type="primary" size="mini" @click="lookfile(row.<%= i.alias %>)">查看附件</el-button>
+                        </span>
+                            <span v-else>暂无数据....</span>
+                        </template>
+                    </el-table-column>
+                <% }else if(['datetime','date'].includes(i.widget) || i.col_name == 'create_time') { %>
+                        <el-table-column label="<%= i.col_title %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                            <template slot-scope="{row}">{{row.<%= i.alias %> ? moment(row.<%= i.alias %>).format("<%= i.widget == 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")  : ''}}</template>
+                        </el-table-column>
+                    <% }
+                else if(i.widget.endsWith('_time')) { %>
+                    <el-table-column label="<%= i.col_title %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                        <template slot-scope="{row}">{{row.<%= i.alias %> ? moment(row.<%= i.alias %>).format("<%= i.widget== 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")  : ''}}</template>
+                    </el-table-column>
+                <% } else { %>
+                    <el-table-column  label="<%= i.col_title %>" prop="<%= i.alias %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> >
+                        <template slot-scope="{ row }">
+                            <% if (i.widget === 'textarea') { %>
+                                <filed_tooltip key="<%= i.alias %>" effect="light" :value="row.<%= i.alias %>" :disabled="false"/>
+                            <% } else { %>{{row.<%= i.alias %>}}<% } %>
+                        </template>
+                    </el-table-column>
+                <% }
+                }
+                }) %>
+            </template>
+
+
+            <div v-if="column_sortable" v-for="(column, index) in columns" :key="index">
+                <% field.forEach(function(i){
+                if (i.widget !== 'ueditor') {
+                  if(i.local_data_source){%><el-table-column label="<%= i.col_title %>" v-if="showColumn('<%= i.alias %>') && column.value=='<%= i.alias %>'" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                    <template slot-scope="{row}">
+                        {{ getOptionDataDisplay('<%= i.value_field %>','<%= i.name_field %>',row.<%= i.alias %>,'<%= i.alias %>') }}
+                    </template>
+                </el-table-column>
+                <% } else if(['image','file'].includes(i.widget)) {%><el-table-column label="<%= i.col_title %>" v-if="showColumn('<%= i.alias %>') && column.value=='<%= i.alias %>'" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                        <template slot-scope="{row}">
+                        <span v-if="row.<%= i.alias %> && row.<%= i.alias %>.length>0">
+                            <el-button type="primary" size="mini" @click="lookfile(row.<%= i.alias %>)">查看附件</el-button>
+                        </span>
+                        <span v-else>暂无数据....</span>
+                        </template>
+                </el-table-column>
+                <% }else if(['datetime','date'].includes(i.widget)) { %>
+                        <el-table-column label="<%= i.col_title %>" :min-width="col_wd.<%= i.alias %>" v-if="showColumn('<%= i.alias %>') && column.value=='<%= i.alias %>'" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                            <template slot-scope="{row}">{{row.<%= i.alias %> ? moment(row.<%= i.alias %>).format("<%= i.widget == 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")  : ''}}</template>
+                        </el-table-column>
+                    <% }
+                  else if(i.col_name.endsWith('_time')) {%><el-table-column label="<%= i.col_title %>" v-if="showColumn('<%= i.alias %>') && column.value=='<%= i.alias %>'" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %> prop="<%= i.alias %>">
+                    <template slot-scope="{row}">{{row.<%= i.alias %> ? moment(row.<%= i.alias %>).format("<%= i.widget== 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")  : ''}}</template>
+                </el-table-column>
+                <% } else {%><el-table-column  label="<%= i.col_title %>" v-if="showColumn('<%= i.alias %>') && column.value=='<%= i.alias %>'" prop="<%= i.alias %>" :min-width="col_wd.<%= i.alias %>" <%= sortAlias.includes(i.alias) ? 'sortable' : '' %>>
+                        <template slot-scope="{ row }">
+                            <% if (i.widget === 'textarea') { %>
+                                <filed_tooltip key="<%= i.alias %>" effect="light" :value="row.<%= i.alias %>" :disabled="false"/>
+                            <% } else { %>{{row.<%= i.alias %>}}<% } %>
+                        </template>
+                    </el-table-column>
+                <% }
+                }
+                }) %>
+            </div>
+
+            <el-table-column label="操作" width="150px" fixed="right" v-if="isCaozuo">
+                <template slot-scope="{row}">
+                    <div style="display: flex;justify-content: space-between">
+                        <el-tooltip class="item" effect="light" content="查看详情" placement="top-start">
+                            <el-button circle type="success" icon="el-icon-s-order" @click="LookDetail(row)" />
+                        </el-tooltip>
+                        <el-tooltip class="item" effect="light" content="编辑" placement="top-start">
+                            <el-button circle type="primary" icon="el-icon-edit" @click="editTable(row)" />
+                        </el-tooltip>
+                        <el-tooltip class="item" effect="light" content="删除"  placement="top-start">
+                            <el-popconfirm style="margin-left:10px" confirm-button-text='确定' cancel-button-text='取消' icon="el-icon-info" icon-color="red" title="删除后不可恢复，确定删除吗？" @confirm="delTable(row)">
+                                <el-button slot="reference"  circle type="danger" icon="el-icon-remove" />
+                            </el-popconfirm>
+                        </el-tooltip>
+                    </div>
+                </template>
+            </el-table-column>
+        </el-table>
+
+        <sortables ref="child" :noShowLabel="noShowLabel" :TEMPLATE_ID="TEMPLATE_ID" @columns="getColumns" @handleDragEnd="handleDragEnd" ></sortables>
+        <%if(has_file || has_image){%>
+<!--        如找不到该组件，请去基础库 ‘huixin-pc-base’ 中的components/common文件夹下获取-->
+            <Preview_Area :Has_create_time="true" :Has_user="true" :Has_category="true" ref="Preview" :files="filePk"/>
+        <%}%>
+    </div>
+</template>
+
+<script>
+  // 如果找不到该组件,请到基础平台项目下获取 src/components/common/Sortable.vue
+  import sortables from "@/components/common/Sortable.vue";
+  import Sortable from "sortablejs";
+  import {mapState} from "vuex";
+  import XLSX from "xlsx";
+  import mixin from "./mixin.js";
+  import FormModel from "./model.js";
+  import filed_tooltip from "@/components/common/filed_tooltip.vue";
+<% if(has_file || has_image){ %>
+  import Preview_Area from "@/components/common/Preview_Area.vue";
+  <% } %>
+
+  const COLUMNS_WIDTH = {<% field.forEach(function(i){ %>
+    <%= i.alias %>: 500,<% }) %>
+  };
+
+  export default {
+    name: "<%= EN_NAME %>Table",
+    components: {
+      sortables,
+      filed_tooltip,
+        <% if(has_file || has_image){ %> Preview_Area,<% } %>
+    },
+    data(){
+      return{
+        columns: [],
+        tableKey: null,
+        noShowLabel:[], // 用于存放不显示的列表字段
+        col_wd: COLUMNS_WIDTH,
+        <% if(has_file || has_image){ %>
+        filePk: [],
+        <% } %>
+      }
+    },
+    mixins: [mixin],
+    props:{
+      // 加载loading
+      loading:{
+        type: Boolean,
+        default: false
+      },
+      // 数据
+      data:{
+        type: Array,
+        defaule: [],
+      },
+      // 是否需要批量删除
+      batch_del:{
+        type: Boolean,
+        default: true
+      },
+      // 是否需要表头可排序
+      column_sortable:{
+        type: Boolean,
+        default: false
+      },
+      // 页 page和pageSize为了做序号使用
+      page:{
+        type: Number,
+        default: 1
+      },
+      // 条
+      pageSize:{
+        type: Number,
+        default: 10
+      },
+      // 搜索条件
+      searchForm:{
+        type: Object,
+        default: ()=>({})
+      },
+      // 是否显示操作栏
+      isCaozuo:{
+        type: Boolean,
+        default: true
+      },
+      // 用于计算Table的高度
+      TabHeight:{
+        type: Number,
+        default: 0
+      }
+    },
+    computed:{
+      computedHeight() {
+        return `calc(100vh - ${267 + this.TabHeight}px)`;
+      },
+      ...mapState(['userinfo']),
+      excelDownloadTranslate(){
+        return {
+          <% field.forEach(function(i){ %>"<%= i.alias %>":"<%= i.col_title %>",
+          <% })%>
+        }
+      }
+    },
+    methods:{
+      // 排序回调方法
+      sortable({ column, prop, order }) {
+        let sortT;
+        if(order == 'descending'){
+          sortT = '-' + prop
+        }
+        if(order == 'ascending'){
+          sortT = prop
+        }
+        if(order == null){
+          sortT = null
+        }
+        this.$emit('sortTable',sortT)
+      },
+      // 父组件调用这个方法,获取表单字段
+      getChildColumns(){
+          this.$nextTick(()=>{
+            this.$refs.child.getColums()
+          })
+      },
+      // 调取表单设置方法
+      settings(){
+        this.$refs.child.settings()
+      },
+      // 子组件传过来的表单字段数据
+      getColumns(data){
+        this.columns = data;
+        this.tableKey = Math.random();
+      },
+      // 左侧选择按钮方法
+      async batchDelDataFn() {
+        if (!this.batchDelData || this.batchDelData.length == 0) {
+          return this.$message.error("请选择要删除的数据!");
+        }
+        try {
+          let pk_list = this.batchDelData.map((i) => i.pk); //data-delete
+          await this.$resource.createObj("data-delete", {
+            template_id: this.TEMPLATE_ID,
+            querys: {pk: pk_list.join(",")},
+          });
+          this.$message.success("批量删除成功!");
+          this.$emit('batchdel'); // 通知父组件刷新数据
+        } catch (error) {}
+      },
+
+      // 编辑方法
+      editTable(row){
+        // 深拷贝
+        this.form = new FormModel(row);
+        // 把数据传给父组件
+        this.$emit('editTableRow',this.form);
+      },
+      // 查看详情方法
+      LookDetail(row){
+        // 深拷贝
+        this.form = new FormModel(row);
+        // 把数据传给父组件
+        this.$emit('DetailRow',this.form.pk);
+      },
+      // 删除方法
+      async delTable(row) {
+        try {
+          if(row instanceof FormModel){
+            await row.delete();
+          } else {
+            await this.$resource.deleteObj("data", row.pk, {
+              template_id: this.TEMPLATE_ID,
+              sys_id: this.userinfo.sys_id
+            })
+          }
+          this.$emit('batchdel') // 通知父组件刷新数据
+          this.$message.success("删除成功!")
+
+        } catch (err) {
+          this.$message.error("删除失败!")
+        }
+      },
+      async  getNameAndFlag() {
+        try {
+          let flag = false;
+          let name = null;
+          await this.$prompt('请输入要导出文件的名称', '提示', {
+            confirmButtonText: '确定',
+            cancelButtonText: '取消',
+            inputValue:'<%= name%>  ' + this.moment().format('YYYY-MM-DD HH:mm:ss')
+          }).then(({ value }) => {
+            name = value
+            flag = true;
+          }).catch(() => {
+            this.$message.info('取消导出')
+          });
+          return { name, flag };
+        } catch (error) {
+          console.error(error); // 处理错误情况
+          return { name: null, flag: false };
+        }
+      },
+      // 数据导出
+      async excelExport(){
+        let loading;
+        try {
+          let {name , flag} = await this.getNameAndFlag();
+          if(!flag) return;
+          loading = this.$loading({
+            lock: true,
+            text: '导出数据中...',
+            spinner: 'el-icon-loading',
+            background: 'rgba(0, 0, 0, 0.7)'
+          });
+          //数据导出目前有两种情况, 1.利用表头排序可实现所见即所得导出  2.直接导出所有数据
+          let header = [<% field.forEach(function(i){ %>
+            "<%= i.col_title %>",<% }) %>
+          ]
+          let tmp = [];
+          let params = {
+            ...this.searchForm,
+            template_id: this.TEMPLATE_ID,
+          }
+          let resp = await FormModel.getList(params);
+          // 不能导出的字段 放到该数组中 只针对表头排序使用
+          // const fieldsToExclude = ["user_id","dep_id"];  举例
+          const fieldsToExclude = [];
+          this.columns.forEach(item=>{
+            if(['file','richtext','ueditor','image'].includes(item.widget)){
+              fieldsToExclude.push(item.value)
+            }
+            if(this.column_sortable){
+              if(!item.show){
+                fieldsToExclude.push(item.value)
+              }
+            }
+          })
+          // 开启表头排序导出
+          if(this.column_sortable){
+            header = [];
+            this.columns.forEach(item=>{
+              if(item.show == true && !fieldsToExclude.includes(item.value)){
+                header.push(item.text);
+                this.excelDownloadTranslate[item.value] = item.text;
+              }
+            })
+          }else{
+            // 未开启表头排序导出
+            this.columns.forEach(item=>{
+              // 如果是附件或者富文本,则不导出
+              if(['file','richtext','ueditor','image'].includes(item.widget)){
+                fieldsToExclude.push(item.value)
+              }
+              if(fieldsToExclude.includes(item.value)){
+                let index = header.indexOf(item.text);
+                header.splice(index,1)
+              }
+            })
+          }
+          resp.forEach((i) => {
+            let obj = {};
+            for (const key in i) {
+              if (Object.hasOwnProperty.call(this.excelDownloadTranslate, key)){
+                // 循环this.columns 和 resp做对比,判断columns的alias的值和resp的key值是否相等,如果相等则取columns的localdatasource的值
+                let alias = this.columns.find(item=>item.alias == key &&
+                  !fieldsToExclude.includes(key));
+                if(alias){
+                  if(alias && alias.localdatasource) {
+                    let localdata = JSON.parse(alias.localdatasource)
+                    obj[this.excelDownloadTranslate[key]] = this.getOptionDataDisplay(localdata.value_field,localdata.name_field,i[key],key)
+                  }else if(alias.alias.includes('_time')){
+                    obj[this.excelDownloadTranslate[key]] =i[key] ?  this.moment(i[key]).format('YYYY-MM-DD HH:mm:ss') : ''
+                  }else{
+                    obj[this.excelDownloadTranslate[key]] = i[key]
+                  }
+                }else{
+                  if(!this.column_sortable){
+                    obj[this.excelDownloadTranslate[key]] = i[key]
+                  }
+                }
+              }
+            }
+            tmp.push(obj);
+          });
+          let wb = XLSX.utils.book_new();
+          let ws = XLSX.utils.json_to_sheet(tmp, { header });
+          XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+          XLSX.writeFile(wb, `${name}.xlsx`);
+          loading.close();
+        }catch (e) {
+          if (loading) {
+            loading.close();
+          }
+        }finally {
+          if (loading) {
+            loading.close();
+          }
+        }
+      },
+      // 拖拉拽方法
+      handleDragEnd() {
+        const el = document.querySelector(
+          ".field-table .el-table__body-wrapper tbody"
+        );
+        const _this = this;
+        Sortable.create(el, {
+          onEnd({ newIndex, oldIndex }) {
+            const targetRow = _this.columns.splice(oldIndex, 1)[0];
+            _this.columns.splice(newIndex, 0, targetRow);
+          },
+        });
+      },
+      // 判断当前列是否显示
+      showColumn(currentColumn) {
+        let CurrentColumn = localStorage.getItem(`${this.userinfo.pk}${this.TEMPLATE_ID}`)
+        const column = JSON.parse(CurrentColumn).find(item => item.value === currentColumn);
+        return column ? column.show : false;
+      },
+      <% if(has_file || has_image){%>
+      // 查看附件
+      async lookfile(val){
+        this.filePk = val;
+        this.$refs.Preview.$data.lookfilevisible = true;
+        this.$nextTick(async ()=>{
+          await this.$refs.Preview.lookFile();
+        })
+      },
+      <%}%>
+    }
+  }
+</script>
+<style lang="scss">
+  .el-tooltip__popper {
+    max-width: 500px !important;
+  }
+</style>
+<style scoped>
+</style>
+

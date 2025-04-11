@@ -1,0 +1,124 @@
+<template>
+    <view>
+        <view style="padding: 40rpx;">
+            <u-form v-if="!loading" :model="form" labelPosition="left" ref="uForm" :labelWidth="90" :rules="rules">
+                <% field.forEach(function(i){ if (!i.is_vant_show) {
+                    return ''
+                } %>
+                <u-form-item label="<%= i.col_title %>" borderBottom prop="<%= i.alias %>" @click="fieldClick('<%= i.alias %>')">
+                    <% if(!i.data_source){ %>
+                        <u--input v-model="form.<%= i.alias %>" placeholder="请输入<%= i.col_title %>" border="none"></u--input>
+                    <% } else { %>
+                        <u--input readonly v-model="form.<%= i.alias %>" border="none"
+                                  placeholder="请选择<%= i.col_title %>">
+                        </u--input>
+                        <u-icon slot="right" name="arrow-right"></u-icon>
+                    <% } %>
+                </u-form-item>
+                <% }) %>
+                <view class="faqianniu" style="margin-top: 40rpx;">
+                    <u-button type="primary" shape="circle" text="提交" size="large" @click="submit"></u-button>
+                </view>
+            </u-form>
+        </view>
+    </view>
+    <el-form :model='form' ref="uForm" label-width="100px" :rules="rules" status-icon>
+        <% field.forEach(function(i){ if (!i.is_required) {
+            return ''
+        } %>
+        <el-form-item label="<%= i.col_title %>" prop="<%= i.alias %>">
+            <% if(i.widget_str){ %><%- i.widget_str -%>
+            <% } %>
+        </el-form-item>
+        <% }) %>
+    </el-form>
+</template>
+<script>
+  // <%= name %>
+  // TEMPLATE_ID: <%= pk %>
+  // 字段说明:<% field.forEach(function(i){ %>
+  // <%= i.alias %>:<%= i.col_title %><% }) %>
+  // import {mapState} from "vuex";
+  import {verifyMobile, verifyEmail, verifyIdCard} from "@/utils/verify.js"
+
+  export default {
+    name: "Form",
+    model: {
+      prop: "form"
+    },
+    props: {
+      form: Object,
+      readonly: {
+        type: Boolean,
+        default: false
+      },
+    },
+    // computed: {
+    //   ...mapState(['userinfo']),
+    // },
+    data() {
+      return {
+        headers: {
+          Authorization: null
+        },
+        loading: false,
+        fileData: {
+          sys_id: null,
+          org_id: null
+        },
+        userinfo: null,
+        token: null,
+        rules: {
+        <% field.forEach(function(i){ if(i.rules){ %><%= i.alias %>:<%- JSON.stringify(i.rules) %>,
+        <% }}) %>
+    },
+        <% additional_fields.forEach(function(e){ %><%= e %>
+        <% }) %><% field.forEach(function(e){ %><% if(e.local_data_source){ %><%= e.alias %>_option_data: null,
+                <% } %><% }) %>verifyMobile,
+          verifyEmail,
+          verifyIdCard
+    }
+    },
+    methods: {
+      async getLocalDataSource() {
+        this.headers.Authorization = "Bearer " + this.token;
+        this.fileData.sys_id = this.userinfo.sys_id;
+        this.fileData.org_id = this.userinfo.org_id;
+          <% field.forEach(function(e){ %><% if(e.local_data_source){ %>
+        // 获取<%= e.col_title %>:<%= e.alias %>数据源数据
+        this.<%= e.alias %>_option_data = await this.$resource.getList("<%- e.data_url %>",<%- JSON.stringify(e.params) %>);<% } %><% }) %>
+      },
+      async submit() {
+        let valid = await new Promise(resolve => this.$refs.uForm.validate(validate => resolve(validate)));
+        if (valid) {
+          this.$emit("checked");
+        } else {
+          this.$message.warning("请认真填写表单!")
+        }
+      },
+      fieldClick(field) {
+        if ([<% field.filter(i => i.in_input).map(item => { %>'<%= item.alias %>',<% }) %>].indexOf(field)) {
+          return
+        }
+        if (field.widget == 'date') {
+          this.date_select_field = field.alias;
+          this.date_picker_show[`show_${field.alias}`] = true;
+          this.show_data_picker = true;
+          this.date_model = this.form[field.alias];
+          uni.hideKeyboard();
+          return
+        }
+        if (field.widget == 'select') {
+          this.action_sheet_switch[`show_${field.alias}`] = true;
+          uni.hideKeyboard();
+          return
+        }
+      },
+    },
+    created() {
+      this.userinfo = uni.getStorageSync("userinfo");
+      this.token = uni.getStorageSync('token');
+      this.getLocalDataSource()
+    },
+  }
+</script>

@@ -1,0 +1,398 @@
+<template>
+  <div style="position:relative">
+      <div v-if="!formDialogVisable">
+      <%if(field.filter(item => item.in_filter).length> 0) {%>
+        <el-card class="fillet">
+            <div class="search-box" ref="search-box">
+                <div>
+                    <el-form inline label-width="100px" label-position="right" @submit.native.prevent>
+                        <% field.filter(item=>item.in_filter).slice(0, 3).forEach(function(i) { %>
+                            <% if (i.in_filter && i.alias != 'create_time') { %>
+                                <el-form-item label="<%= i.col_title %>">
+                                    <% if (i.widget_str) { %>
+                                        <% if (['year', 'date', 'yearmonth', 'time', 'minute', 'daterange', 'datetime'].includes(i.widget)) { %>
+                                            <% let widgetStr = i.widget_str.replace(/form\./g, 'searchForm.'); %>
+                                            <%- widgetStr %><% } else { %><%- i.widget_str %><% } %><% } %>
+                                </el-form-item><% } %><% }) %>
+                    </el-form>
+                    <%if(field.filter(item => item.in_filter).length > 3){%>
+                    <el-form inline label-width="100px" label-position="right" @submit.native.prevent>
+                            <el-collapse v-model="collapseVisible" >
+                                <el-collapse-item name="1" >
+                                    <% field.filter(i=>i.in_filter).slice(3).forEach(function(i) { %>
+                                        <% if (i.in_filter && i.alias != 'create_time') { %>
+                                            <el-form-item label="<%= i.col_title %>">
+                                                <% if (i.widget_str) { %>
+                                                    <% if (['year', 'date', 'yearmonth', 'time', 'minute', 'daterange', 'datetime'].includes(i.widget)) { %>
+                                                        <% let widgetStr = i.widget_str.replace(/form\./g, 'searchForm.'); %>
+                                                        <%- widgetStr %><% } else { %><%- i.widget_str %><% } %><% } %>
+                                            </el-form-item><% } %><% }) %>
+                                </el-collapse-item>
+                            </el-collapse>
+                    </el-form>
+                    <%}%>
+                </div>
+                <div class="left-btn">
+                    <%if(field.filter(item => item.in_filter).length > 3){%>
+                        <el-button style="font-size: 14px" @click="toggleCollapse(collapseVisible.length>0 ? '收起' :'展开')" type="text">
+                            {{ collapseVisible.length>0 ? ' 收起' :' 展开' }}
+                            <span :class="{'el-icon-arrow-down':collapseVisible.length<=0,'el-icon-arrow-up':collapseVisible.length>0}" class="el-icon--right"></span>
+                        </el-button>
+                    <%}%>
+                    <el-button @click="search" type="primary" icon="el-icon-search">搜索</el-button>
+                    <el-button @click="loadAll" type="success">全部</el-button>
+                </div>
+            </div>
+        </el-card>
+      <%}%>
+
+    <el-card style="margin: 10px 0" class="fillet">
+        <el-form inline>
+            <el-form-item>
+                <el-button @click="add" type="primary" icon="el-icon-plus">新建</el-button>
+            </el-form-item>
+            <el-form-item v-if="Has_Import">
+                <el-button @click="excelDialogVisable=true" type="info" icon="el-icon-upload">数据导入</el-button>
+            </el-form-item>
+            <el-form-item v-if="Has_Export">
+                <el-button @click="excelExport" type="success" icon="el-icon-download">Excel导出</el-button>
+            </el-form-item>
+            <el-form-item v-if="Has_Batch_Del">
+                <el-popconfirm confirm-button-text="确定" cancel-button-text="取消" icon="el-icon-info" icon-color="red" title="确定批量删除吗" @confirm="batchDel">
+                    <el-button icon="el-icon-delete" type="danger" slot="reference">批量删除</el-button>
+                </el-popconfirm>
+            </el-form-item>
+            <el-form-item v-if="Has_Column_Sorttable" style="float: right;">
+                <el-button type="primary" class="el-icon-s-tools" plain @click="settings">表格设置</el-button>
+            </el-form-item>
+        </el-form>
+        <Tables ref="childtable"
+                :data="data"
+                :TabHeight="TabHeight"
+                :loading="loading"
+                :searchForm="searchForm"
+                :column_sortable="Has_Column_Sorttable"
+                :batch_del="Has_Batch_Del"
+                @editTableRow="editTableRow"
+                @batchdel="Refresh"
+                @DetailRow="DetailRow"
+                @sortTable="sortTable"
+                :page="page"
+                :page-size="pageSize"
+        ></Tables>
+        <el-pagination class="top-table" @size-change="loadData" @current-change="loadData" :current-page.sync="page" :page-sizes="[10, 50, 100, 200]" :page-size.sync="pageSize" layout="total, sizes, prev, pager, next, jumper" :total="total">
+        </el-pagination>
+        <div class="batchClass" v-if="Has_Batch_Del">
+            <el-popconfirm confirm-button-text="确定" cancel-button-text="取消" icon="el-icon-info" icon-color="red" title="确定批量删除吗" @confirm="batchDel">
+                <el-button icon="el-icon-delete" type="danger" slot="reference">批量删除</el-button>
+            </el-popconfirm>
+        </div>
+    </el-card>
+    </div>
+      <div v-if="formDialogVisable">
+          <el-card>
+              <h3 style="text-align: center;">
+                  <span style="font-size: 26px" class="inf">{{$route.query.pk && $route.query.pk !='new' ? '编辑<%= name %>' : '新增<%= name %>'}}</span>
+              </h3>
+              <Form v-if="formDialogVisable" @saved = "Refresh"  ref="FormComp" style="margin-top: 20px;" />
+              <div style="text-align: center">
+                  <el-button @click="cancel" icon="el-icon-close">取消</el-button>
+                  <el-button icon="el-icon-check" type="primary" @click="$refs.FormComp.submit()">确定</el-button>
+              </div>
+          </el-card>
+      </div>
+    <el-dialog class="ImportDataStyle" v-dialogDrag append-to-body title="Excel导入" :visible.sync="excelDialogVisable" width="95%" :close-on-click-modal="false" :close-on-press-escape="false" top="0vh" center destroy-on-close>
+      <ImportData @loadData="loadData" @close="excelDialogVisable=false"/>
+    </el-dialog>
+      <el-dialog class="DetailStyle" v-dialogDrag append-to-body :visible.sync="detailVisable" width="80%" :close-on-click-modal="false" :close-on-press-escape="false" top="0vh" center destroy-on-close>
+          <Detail :currentformPK="detailformPk" v-if="detailVisable"/>
+      </el-dialog>
+  </div>
+</template>
+
+<script>
+import Form from "./Form.vue"
+import ImportData from "./ImportData.vue"
+import Tables from "./Table.vue"
+import { mapState } from "vuex";
+import mixin,{TEMPLATE_ID as TEMP_ID} from "./mixin.js";
+import Detail from "./Detail.vue";
+import FormModel from "./model.js";
+
+export const TEMPLATE_ID = TEMP_ID;
+
+
+// 是否需要表头可排序
+const Has_Column_Sorttable = true;
+// 是否需要批量删除
+const Has_Batch_Del = true;
+// 是否需要导入
+const Has_Import = true;
+// 是否需要导出
+const Has_Export = true;
+
+export default {
+  name: "<%= EN_NAME %>Index",
+  data() {
+    return {
+      form: new FormModel(),
+      columns: [],
+      Has_Column_Sorttable,
+      Has_Batch_Del,
+      Has_Import,
+      Has_Export,
+      searchForm: {
+      <% field.forEach(function(i) { %><% if (i.in_filter) { %><% if (['multipleSelect', 'checkbox'].includes(i.widget)) { %>
+      <%= i.alias %>: [],<% } else if (i.widget === 'date') { %>
+      <%= i.alias %>: { after: null, before: null },<% } else { %><%= i.alias %>: null,
+      <% } %><% } %><% }) %>
+      },
+
+    data: [],
+      loading: false,
+      formDialogVisable: false,
+      excelDialogVisable: false,
+      detailVisable: false,
+      page: 1,
+      pageSize: 10,
+      total: 0,
+      detailformPk: null,
+      TabHeight: 90,
+      sortTables: null,
+    <%if(field.filter(item => item.in_filter).length > 3){%>
+      collapseVisible: [],
+    <%}%>
+    }
+  },
+  created() {
+      this.$nextTick(()=>{
+        this.$refs.childtable.getChildColumns();
+      })
+    this.loadData();
+  },
+  computed:{
+    ...mapState(["userinfo"]),
+  },
+  mixins: [mixin],
+  components: {
+    Form,
+    ImportData,
+    Tables,
+    Detail
+  },
+  mounted() {
+    if(this.$route.query.pk){
+      this.formDialogVisable = true;
+    }else{
+      this.formDialogVisable = false;
+    }
+    let TabHeight;
+    this.resizeObserver = new ResizeObserver(entries => {
+      // 处理大小变化事件
+      const target = entries[0].target;
+      TabHeight = target.clientHeight + 40;
+        this.TabHeight = TabHeight;
+    });
+    this.resizeObserver.observe(this.$refs["search-box"]);
+  },
+  beforeDestroy() {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
+  },
+  watch: {
+    $route: {
+      handler(val, new_data) {
+        if (val.query.pk) {
+          this.formDialogVisable = true;
+        } else {
+          this.formDialogVisable = false;
+          if (val !== new_data && Has_Column_Sorttable) {
+            this.$nextTick(() => {
+              this.$refs.childtable.getChildColumns();
+            })
+          }
+        }
+      }
+    },
+  },
+  methods: {
+    <%if(field.filter(item => item.in_filter).length > 3){%>
+    toggleCollapse(val){
+      if(val == '展开'){
+        this.collapseVisible = ['1'];
+      }else{
+        this.collapseVisible = [];
+      }
+    },
+    <%}%>
+    search() {
+      this.page = 1;
+      this.loadData();
+    },
+    // 排序回调方法
+    sortTable(val){
+      this.sortTables = val;
+      this.loadData();
+    },
+    async loadData() {
+      this.loading = true;
+      try {
+        let params = {
+          ...this.searchForm,
+          page: this.page,
+          pageSize: this.pageSize,
+          template_id: TEMPLATE_ID
+        }
+        // 这个是table表格上的sorttable排序字段
+        if(this.sortTables){
+          params.sortTable = this.sortTables;
+        }
+        // 如需添加参数解析逻辑请在 model.js 添加
+        let res = await FormModel.getList(params);
+        this.data = res.data;
+        this.total = res.count;
+      }catch (e) {
+        console.error(e)
+        let res = await FormModel.getList({
+          page: 1,
+          pageSize: this.pageSize,
+          template_id: TEMPLATE_ID
+        });
+        let page = parseInt(res.count / this.pageSize );
+        this.page = page == 0 ? 1 : page;
+        if (this.page == page) {
+          await this.loadData();
+        } else {
+          this.data = [];
+          this.total = 0;
+        }
+      }
+      this.loading = false;
+    },
+    loadAll(){
+      this.page = 1;
+      this.searchForm = {
+        <% field.forEach(function(i) { %><% if (i.in_filter) { %><% if (['multipleSelect', 'checkbox'].includes(i.widget)) { %><%= i.alias %>: [],<% } else if (i.widget === 'date') { %>
+        <%= i.alias %>: { after: null, before: null },<% } else { %><%= i.alias %>: null,<% } %><% } %><% }) %>
+      };
+      this.loadData();
+    },
+    add(){
+      this.$router.push({
+        path: this.$route.path,
+        query: {
+          pk: 'new'
+        }
+      })
+      this.page = 1;
+      this.form = {};
+    },
+    cancel(){
+      this.$router.replace({
+        path: this.$route.path,
+      })
+    },
+    // 删除和添加，编辑事件共用方法；重新获取数据
+    Refresh(val){
+      // 如果val存在，代表是form表单触发的刷新，并关闭弹框
+      if(val){
+        this.$router.replace({
+          path: this.$route.path,
+        })
+      }
+      this.loadData();
+    },
+    // 编辑 传过来的数据
+    editTableRow(data){
+      this.$router.push({
+        path: this.$route.path,
+        query: {
+          pk: data.pk
+        }
+      })
+      this.form = data;
+    },
+    // 详情 传过来的数据pk
+    DetailRow(pk){
+      this.detailformPk = pk;
+      this.detailVisable = true;
+    },
+    // 调用子组件的批量删除方法
+    batchDel(){
+      this.$refs.childtable.batchDelDataFn();
+    },
+    // 导出数据
+    excelExport(){
+      this.$refs.childtable.excelExport();
+    },
+    // 初始化表单
+    clearForm() {
+      this.form = new FormModel();
+    },
+
+    settings(){
+      // 调取子组件的表单设置方法
+      this.$refs.childtable.settings();
+    }
+  },
+
+}
+</script>
+
+<style scoped>
+  .suc{
+    background-color: #F0F9EB;
+    color: #67C23A;
+    padding: 5px 15px;
+    border-radius: 5px;
+  }
+  .inf{
+    background-color: #ECF5FF;
+    color: #419EFE;
+    padding: 5px 15px;
+    border-radius: 5px;
+  }
+  .search-box{
+    display: flex;justify-content: space-between
+  }
+  .left-btn{
+    width: 18rem;justify-content: flex-end;align-items: flex-start;display: flex;box-sizing: border-box
+  }
+  .batchClass {
+    position: absolute;
+    right: 20px;
+    bottom: 17px;
+  }
+  .fillet{
+    border-radius: 6px;
+  }
+  .top-table{
+    margin-top: 10px;
+  }
+  .FormStyle ::v-deep .el-dialog--center{
+    background-color: #ffffff;
+    border-radius: 6px;
+  }
+
+  .DetailStyle ::v-deep .el-dialog--center{
+    background-color: #ffffff;
+    border-radius: 6px;
+  }
+  .ImportDataStyle ::v-deep .el-dialog--center{
+    background-color: #ffffff;
+    border-radius: 6px;
+  }
+  ::v-deep .el-collapse{
+    border: none !important;
+  }
+  ::v-deep .el-collapse-item__content{
+    padding-bottom: 0px !important;
+  }
+  ::v-deep .el-collapse-item__header{
+    display: none !important;
+  }
+  ::v-deep .el-collapse-item__wrap{
+    border:none !important;
+  }
+</style>

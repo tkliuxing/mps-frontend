@@ -1,0 +1,312 @@
+<template>
+    <div>
+        <el-descriptions border :column="1" v-loading="loading"
+                         element-loading-text="拼命加载中"
+                         element-loading-spinner="el-icon-loading"
+                         element-loading-background="rgba(0, 0, 0, 0.8)">
+            <% field.forEach(function(i){
+            if(i.widget !== 'ueditor'){ %>
+                <% if(['file', 'image'].includes(i.widget)){ %>
+                    <el-descriptions-item label="<%= i.col_title %>" :labelStyle="[lablewidth]">
+                        <div v-if="form.<%=i.alias%> && form.<%=i.alias%>.length > 0">
+                            <div class="filebox" v-for="(item, index) in form.<%=i.alias%>" :key="index">
+                                <div class="fileitem">
+                            <span class="filename">
+                                <span style="float: left">文件名称：</span>
+                                <span class="filefile" @click="Previews(item)">{{item.name}}</span>
+                            </span>
+                                    <span v-if="Has_create_time" class="fileClass">
+                                <span>上传时间：</span>
+                                <span>{{item.create_time}}</span>
+                            </span>
+                                    <span v-if="Has_user" class="fileClass">
+                                <span>上传人：</span>
+                                <span>{{item.user}}</span>
+                            </span>
+                                    <span v-if="Has_category" class="fileClass">
+                                <span>分类：</span>
+                                <span>{{item.category}}</span>
+                            </span>
+                                    <span style="display: block; border-bottom: 1px dashed #c3c3c3"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else>
+                            <span>暂无数据...</span>
+                        </div>
+                    </el-descriptions-item>
+                <% } else if(i.local_data_source) { %>
+                    <el-descriptions-item label="<%= i.col_title %>" :labelStyle="[lablewidth]">
+                        {{getOptionDataDisplay('<%= i.value_field %>', '<%= i.name_field %>', form.<%= i.alias %>, '<%= i.alias %>')}}
+                    </el-descriptions-item>
+                <% } else if(i.col_name.includes('time')) { %>
+                    <el-descriptions-item label="<%= i.col_title %>" :labelStyle="[lablewidth]">
+                        {{form.<%= i.alias %> ? moment(form.<%= i.alias %>).format("<%= i.widget == 'date' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>") : ''}}
+                    </el-descriptions-item>
+                <% } else { %>
+                    <el-descriptions-item label="<%= i.col_title %>" :labelStyle="[lablewidth]">
+                        {{form.<%= i.alias %>}}
+                    </el-descriptions-item>
+                <% } %>
+            <% } %>
+            <% }) %>
+        </el-descriptions>
+        <% field.forEach(function(i){
+        if(i.widget == 'ueditor'){ %>
+            <el-divider content-position="center"><%= i.col_title %></el-divider>
+            <span v-html="form.<%= i.alias %>"></span>
+        <% }
+        }) %>
+
+    <%if(has_file || has_image){%>
+            <PDFViewer v-if="pdfurl" :pdf-url="pdfurl" :visable="pdfVisable" @close="pdfVisable=false" />
+            <el-dialog v-dialogDrag append-to-body :visible.sync="imgShow" width="650px">
+                <el-image
+                        v-if="imgShow"
+                        style="width: 600px; height: 500px"
+                        fit="contain"
+                        :src="url">
+                </el-image>
+            </el-dialog>
+            <el-dialog v-dialogDrag append-to-body :visible.sync="mp4Show" width="600px">
+                <video controls :src="mp4url" style="width: 500px"></video>
+            </el-dialog>
+        <%}%>
+    </div>
+</template>
+
+<script>
+  import mixin from "./mixin.js";
+  import FormModel from "./model.js";
+  <% if(has_file || has_image){ %>import PDFViewer from '@/components/common/PDFViewer.vue';
+  import {BASE_HOST} from "@/constvars";
+  // 是否显示上传时间
+  const Has_create_time = true;
+  // 是否显示上传人
+  const Has_user = true;
+  // 是否显示文件类型
+  const Has_category = true;
+  <% } %>
+  export default {
+    name: "<%= EN_NAME %>Detail",
+    data(){
+      return{
+        form:{},
+        loading: false,
+        lablewidth:{width:'130px'},
+        <% if(has_file || has_image){ %>
+        imgShow: false,
+        url: null,
+        pdfurl: null,
+        pdfVisable: false,
+        mp4Show: false,
+        mp4url: null,
+        AllUser: [],
+        BASE_HOST,
+        Has_create_time,
+        Has_user,
+        Has_category,
+        <% } %>
+        }
+    },
+    <% if(has_file){ %>components: {PDFViewer},<% } %>
+    mixins: [mixin],
+    props: {
+      // 传过来的当前数据的pk
+      currentformPK: {
+        type: String,
+        default: null
+      },
+    },
+    watch:{
+      // 监听currentformPK是否有值
+      currentformPK:{
+        handler(newVal, oldVal){
+          if(newVal){
+            this.loadData();
+          }
+        },
+        immediate: true
+      }
+    },
+    <% if(has_file || has_image){ %>
+    created() {
+      if(this.Has_user){
+        this.getUser();
+      }
+    },<% } %>
+
+    methods:{
+      async loadData(){
+        try {
+          let row = await this.$resource.getObj('data',this.currentformPK,{template_id:this.TEMPLATE_ID })
+          this.form = new FormModel(row);
+          <% if(has_file || has_image){ %>
+          await this.getFile();
+          <% } %>
+        }catch (e) {
+          console.error(e)
+        }
+      },
+      <% if(has_file || has_image){%>
+      async Previews(res){
+        //用正则去识别不同文件类型，然后对应不同文件类型去做不同操作
+        // 定义图片类型的正则表达式
+        try {
+          const imageRegex = /\.(jpg|jpeg|png|webp)$/i;
+          const mp4Regex = /\.mp4$/i;
+          // 定义文档类型的正则表达式
+          const docRegex = /(\.pdf)$/i;
+          // 定义其他文档
+          const doc = /(\.doc|\.docx|\.xls|\.xlsx|\.txt)$/i;
+          // 定义其他文件类型的正则表达式
+          const othersRegex = /(\.txt|\.csv|\.xlsx)$/i;
+          // 利用正则表达式判断文件类型
+          if (imageRegex.test(res.name)) {
+            if(res.file.startsWith('http') || res.file.startsWith('https')){
+              this.url = res.file;
+            }else{
+              this.url = BASE_HOST + res.file;
+            }
+            this.imgShow = true;
+          } else if (docRegex.test(res.name)) {
+            if(res.file.startsWith('http') || res.file.startsWith('https')){
+              this.pdfurl = res.file;
+            }else{
+              this.pdfurl = BASE_HOST + res.file;
+            }
+            this.pdfVisable = true;
+          } else if (doc.test(res.name) || othersRegex.test(res.name)) {
+            let a = document.createElement('a');
+            if(res.file.startsWith('http') || res.file.startsWith('https')){
+              a.href = res.file;
+            }else{
+              a.href = BASE_HOST + res.file;
+            }
+            a.download = res.name;
+            a.click();
+          }else if(mp4Regex.test(res.file)){
+            if(res.file.startsWith('http') || res.file.startsWith('https')){
+              this.mp4url = res.file;
+            }else{
+              this.mp4url = BASE_HOST + res.file;
+            }
+            this.mp4Show = true;
+          } else {
+            let a = document.createElement('a');
+            if(res.file.startsWith('http') || res.file.startsWith('https')){
+              a.href = res.file;
+            }else{
+              a.href = BASE_HOST + res.file;
+            }
+            a.download = res.name;
+            a.click();
+          }
+        }catch (e) {
+          this.$message.error('暂不支持预览或下载');
+        }
+      },
+      <%}%>
+
+      <% if(has_file || has_image){ %>
+      getFile(){
+        this.loading = true;
+          <% field.forEach(function(i){
+          if(['file','image'].includes(i.widget)){%>
+        const <%= i.alias %> = this.form.<%= i.alias %>;
+        if (!<%= i.alias %> || <%= i.alias %>.length === 0) {
+          this.form.<%= i.alias %> = '';
+          this.loading = false;
+        }
+        this.$resource.getList('fileupload', { pk_in: <%= i.alias %>.join(',') })
+          .then(async resp => {
+              const <%= i.alias %> = [];
+            for (const item of resp) {
+              let category;
+              if(this.Has_category){
+                category = await this.getCategory(item.category);
+              }
+              const newItem = {
+                name: item.file_name,
+                file: item.file,
+              };
+              // 如果开关为true，则添加用户信息
+              if (this.Has_user && this.AllUser.length>0) {
+                newItem.user = this.getUserName(item.user);
+              }
+              // 如果开关为true,则添加创建时间
+              if(this.Has_create_time){
+                newItem.create_time = item.create_time ? this.moment(item.create_time).format('YYYY-MM-DD HH:mm:ss') : '';
+              }
+              // 如果开关为true,则添加文件分类
+              if(this.Has_category){
+                newItem.category = category
+              }
+                <%= i.alias %>.push(newItem);
+            }
+            this.form.<%= i.alias %> = <%= i.alias %>;
+            return <%= i.alias %>;
+
+          })
+          .catch(error => {
+            // 错误处理
+            this.loading = false;
+          });
+          <% } %><% }) %>
+        this.loading = false;
+      },
+      getUserName(val){
+        let name = '';
+        if(val){
+          name = this.AllUser.find(user=>user.pk === val).full_name
+        }
+        return name;
+      },
+      async getUser(){
+        try {
+          let res = await this.$resource.getList('usermin',{})
+          this.AllUser = res;
+        }catch (e) {
+          console.error(e)
+        }
+      },
+      async getCategory(val){
+        try {
+          let res = await this.$resource.getObj('basetree',val,{})
+          return res.name
+        }catch (e) {
+          console.error(e)
+        }
+      },
+      <% } %>
+    }
+  }
+</script>
+
+<style scoped>
+  .fileClass{
+    width: 220px;
+    display: inline-block;
+  }
+  .filebox{
+    font-size: 14px;display: block
+  }
+  .fileitem{
+    display: flex; flex-direction: row;
+  }
+  .filename{
+    width: 300px; display: inline-block;
+  }
+  .filefile{
+    width: 220px;text-overflow: ellipsis;white-space: nowrap;overflow:hidden;float: left;
+    color: #409EFF;
+    font-size: 15px;
+  }
+  .filefile:hover{
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  ::v-deep .el-descriptions-item__cell {
+    white-space: pre-wrap;
+  }
+</style>

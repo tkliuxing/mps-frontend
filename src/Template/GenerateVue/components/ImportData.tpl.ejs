@@ -1,0 +1,388 @@
+<template>
+  <div style="position:relative">
+    <el-form inline>
+      <el-form-item>
+        <el-button type="warning" icon="el-icon-download" @click="downloadExcelTemplate">下载模板</el-button>
+      </el-form-item>
+      <el-form-item>
+        <el-upload action="" accept=".xlsx,.xls" :http-request="httpRequest" :show-file-list="false">
+          <el-button type="primary" icon="el-icon-upload">导入</el-button>
+        </el-upload>
+      </el-form-item>
+    </el-form>
+    <div class="tips">
+      <span>数据导入确认无误后请及时提交!</span>
+    </div>
+    <el-table :data="data.slice((page-1)*pageSize,page*pageSize)" border stripe :cell-style="{textAlign:'center'}" :header-cell-style="{textAlign:'center'}" @selection-change="(data) => (batchDelData = data)" v-loading="loading" element-loading-text="导入中...">
+      <el-table-column type="selection" width="55"></el-table-column>
+        <% field.forEach(function(i){ if(i.local_data_source){%><el-table-column label="<%= i.col_title %>">
+            <template slot-scope="{row}">{{getOptionDataDisplay('<%= i.value_field %>','<%= i.name_field %>',row.<%= i.alias %>,'<%= i.alias %>')}}</template>
+        </el-table-column>
+        <% } else if(i.widget == 'file') {%><el-table-column label="<%= i.col_title %>">
+            <template slot-scope="{row}"><el-button type="primary" size="mini" @click="$message.info('未实现')">查看附件</el-button></template>
+        </el-table-column>
+        <% } else if(['date','datetime'].includes(i.widget)) {%><el-table-column label="<%= i.col_title %>">
+            <template slot-scope="{row}">{{moment(row.<%= i.alias %>).format("<%= i.widget== 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")}}</template>
+        </el-table-column>
+        <% } else {%><el-table-column label="<%= i.col_title %>" prop="<%= i.alias %>"></el-table-column>
+        <% } }) %>
+      <el-table-column label="操作">
+        <template slot-scope="{row,$index}">
+          <el-button title="编辑" circle type="primary" icon="el-icon-edit" @click="editExcelTable(row,$index)" />
+          <el-popconfirm style="margin-left:10px" confirm-button-text='确定' cancel-button-text='取消' icon="el-icon-info" icon-color="red" title="确定删除吗？" @confirm="delExcelTable(row,$index)">
+            <el-button slot="reference" title="删除" circle type="danger" icon="el-icon-remove" />
+          </el-popconfirm>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-pagination :current-page.sync="page" :page-sizes="[10, 50, 100, 200]" :page-size.sync="pageSize" layout="total, sizes, prev, pager, next, jumper" :total="data.length">
+    </el-pagination>
+
+    <div style="text-align: right">
+      <el-button type="success" icon="el-icon-check" @click="batchSubmit">批量提交</el-button>
+      <el-popconfirm style="margin-left:10px" confirm-button-text='确定' cancel-button-text='取消' icon="el-icon-info" icon-color="red" title="确定删除吗？" @confirm="batchDelete">
+        <el-button type="danger" icon="el-icon-delete" slot="reference">批量删除</el-button>
+      </el-popconfirm>
+    </div>
+
+      <h2 style="margin-top: 10px">异常数据预览</h2>
+      <div style="max-height: 300px;overflow: auto">
+          <el-table :data="err_data" border stripe :cell-style="{textAlign:'center'}" :header-cell-style="{textAlign:'center'}" v-loading="loading" element-loading-text="导入中...">
+                  <% field.forEach(function(i){ if(i.local_data_source){%><el-table-column label="<%= i.col_title %>">
+                      <template slot-scope="{row}">
+                          <span :class="{'errorColor':row.markerlabel.includes('<%= i.alias %>') }">
+                            {{getOptionDataDisplay('<%= i.value_field %>','<%= i.name_field %>',row.<%= i.alias %>,'<%= i.alias %>')}}
+                          </span>
+                      </template>
+                  </el-table-column>
+                  <% } else if(i.widget == 'file') {%><el-table-column label="<%= i.col_title %>">
+                      <template slot-scope="{row}"><el-button type="primary" size="mini" @click="$message.info('未实现')">查看附件</el-button></template>
+                  </el-table-column>
+                  <% } else if(['date','datetime'].includes(i.widget)) {%><el-table-column label="<%= i.col_title %>">
+                      <template slot-scope="{row}">
+                          <span :class="{'errorColor':row.markerlabel.includes('<%= i.alias %>') }">
+                              {{moment(row.<%= i.alias %>).format("<%= i.widget== 'date'  ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm:ss'%>")}}
+                          </span>
+                      </template>
+                  </el-table-column>
+                  <% } else {%><el-table-column label="<%= i.col_title %>" prop="<%= i.alias %>">
+                      <template slot-scope="{ row }">
+                          <span :class="{'errorColor':row.markerlabel.includes('<%= i.alias %>') }">{{row.<%= i.alias %>}}</span>
+                      </template>
+                  </el-table-column>
+                  <% } }) %>
+          </el-table>
+      </div>
+
+    <el-dialog v-dialogDrag :visible.sync="excelEditDialogVisible" append-to-body title="编辑" width="50%" :close-on-click-modal="false" :close-on-press-escape="false" top="3vh" center destroy-on-close>
+      <Form v-if="excelEditDialogVisible" :currentform="form" ref="FormComp"  />
+      <div slot="footer">
+        <el-button @click="excelEditDialogVisible = false" icon="el-icon-close">取消</el-button>
+        <el-button @click="saveData" icon="el-icon-check" type="primary">确定</el-button>
+      </div>
+    </el-dialog>
+
+  </div>
+</template>
+<script>
+import Form from "./Form.vue";
+import moment from "moment";
+import XLSX from "xlsx";
+import mixin from './mixin'
+import {mapState} from "vuex";
+export default {
+  name: "<%= EN_NAME %>Excel",
+  data() {
+    return {
+    data: [],
+    batchDelData: [],
+    form: {},
+    loading: false,
+    excelEditDialogVisible: false,
+    page: 1,
+    pageSize: 10,
+    excelTmp: {
+      <% field.forEach(function(i){ %> "<%= i.col_title %>": "<%= i.alias %>",
+      <% }) %>
+    },
+    editindex: null,
+    err_data:[], // 异常数据
+    }
+  },
+  mixins:[mixin],
+  computed: {
+    ...mapState(["userinfo"])
+  },
+  methods: {
+    saveData(){
+      this.data.splice(this.editindex, 1, { ...this.$refs.FormComp.form });
+      this.excelEditDialogVisible = false;
+    },
+    editExcelTable(row,index) {
+      for (const key in row) {
+        if (
+          row[key] &&
+          typeof row[key] === "string" &&
+          row[key].startsWith("[") &&
+          row[key].endsWith("]")
+        ) {
+          row[key] = JSON.parse(row[key]);
+        }
+      }
+      this.form = row;
+      this.editindex = index;
+      this.excelEditDialogVisible = true;
+    },
+    delExcelTable(row,index) {
+      this.data.splice(index, 1);
+    },
+    downloadExcelTemplate() {
+      let header = [<% field.forEach(function(i){ %>
+        "<%= i.col_title %>",<% }) %>
+      ]
+      let wb = XLSX.utils.book_new();
+      let ws = XLSX.utils.json_to_sheet([], {
+        header
+      });
+      XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+      XLSX.writeFile(wb, "template.xlsx");
+    },
+    httpRequest(e) {
+      this.loading = true;
+      try {
+        let file = e.file; // 文件信息
+        if (!file) {
+          return false;
+        } else if (!/.(xls|xlsx)$/.test(file.name.toLowerCase())) {
+          // 格式根据自己需求定义
+          this.$message.error("上传格式不正确，请上传xls或者xlsx格式");
+          return false;
+        }
+        const fileReader = new FileReader();
+        fileReader.onload =async (ev) => {
+        try {
+          const data = ev.target.result;
+          const workbook = XLSX.read(data, {
+            type: "binary",
+            cellDates: true,
+          });
+          const exlname = workbook.SheetNames[0];
+          const exl = XLSX.utils.sheet_to_json(workbook.Sheets[exlname]); // 生成json表格内容
+          let template = await this.$resource.getObj("formtemplate", this.TEMPLATE_ID);
+          let field = template.field;
+          const fieldMap = {};
+          field.forEach(item => {
+            fieldMap[item.col_title] = item;
+          });
+
+          if (template.header_conf) {
+            let excelData = exl.slice((JSON.parse(template.header_conf).start) - 2);
+            if (excelData && excelData.length > 0) {
+              let tmp = []; // 正确的
+              let err_data = []; // 错误的
+              for (let i = 0; i < excelData.length; i++) {
+                let obj = { template_id: this.TEMPLATE_ID,markerlabel:[]}; // 用于存储正确的数据
+                let rowData = excelData[i];
+                for (let key in rowData) {
+                  if (rowData.hasOwnProperty(key)) {
+                    let value = rowData[key];
+                    let currentItem = fieldMap[key];
+                    if (currentItem ) {
+                      if (currentItem.col_name.includes('int_')) {
+                        obj[currentItem.alias] = parseInt(value);
+                      } else if (currentItem.col_name.includes('float_')) {
+                        obj[currentItem.alias] = parseFloat(value);
+                      }else if(currentItem.local_data_source){
+                        const delimiterRegex = /[、，,./。\\\s]+/;
+                        let name_field = JSON.parse(currentItem.local_data_source).name_field;
+                        let value_field = JSON.parse(currentItem.local_data_source).value_field;
+                        let ConvertedData = this.getImportExcel(currentItem.alias, name_field, value_field, value.split(delimiterRegex));
+                        if(!ConvertedData){
+                          obj[currentItem.alias] = value
+                          obj.markerlabel.push(currentItem.alias);
+                        }else{
+                          // 先判断如果有逗号分割的数据,就转换成数组
+                          if(ConvertedData.includes(',')){
+                            let current_value = ConvertedData.split(',')
+                            obj[currentItem.alias] = JSON.stringify(current_value)
+                          }else{
+                            obj[currentItem.alias] = ConvertedData
+                          }
+                        }
+                      } else if (currentItem.col_name.includes('datetime_')) {
+                        let a1 = value ? moment(value).format('YYYY-MM-DD') : null
+                        obj[currentItem.alias] = a1 != 'Invalid date' ? moment(value).add(1, 'day').format('YYYY-MM-DD') : this.TimeConversion(value);
+                      } else if (currentItem.col_name=='create_time') {
+                        let a1 = value ? moment(value).format('YYYY-MM-DD HH:mm:ss') : moment().format('YYYY-MM-DD HH:mm:ss')
+                        obj[currentItem.alias] = a1
+                      } else if (currentItem.widget == 'date') {
+                        let a1 = value ? moment(value).format('YYYY-MM-DD') : null
+                        if (a1 != 'Invalid date') {
+                          obj[currentItem.alias] = moment(value).add(1, 'day').format('YYYY-MM-DD');
+                        } else {
+                          obj[currentItem.alias] = this.TimeConversion(value);
+                        }
+                      } else if (currentItem.widget == 'year') {
+                        obj[currentItem.alias] = moment(value).format('YYYY')
+                      } else {
+                        obj[currentItem.alias] = value;
+                      }
+                    }
+                  }
+                }
+                if(obj&& obj.markerlabel.length>0){
+                  err_data.push(obj)
+                }else{
+                  tmp.push(obj);
+                }
+              }
+              this.data.push(...tmp)
+              this.err_data.push(...err_data)
+            }
+          } else {
+            let excelData = exl;
+            if (excelData && excelData.length > 0) {
+              let tmp = [];
+              let err_data = []; // 错误的
+              for (let i = 0; i < excelData.length; i++) {
+                let obj = { template_id: this.TEMPLATE_ID,markerlabel:[] }; // 用于存储正确的数据
+                let rowData = excelData[i];
+                for (let key in rowData) {
+                  if (rowData.hasOwnProperty(key)) {
+                    let value = rowData[key];
+                    let currentItem = fieldMap[key];
+                    if (currentItem ) {
+                      if (currentItem.col_name.includes('int_')) {
+                        obj[currentItem.alias] = parseInt(value);
+                      } else if (currentItem.col_name.includes('float_')) {
+                        obj[currentItem.alias] = parseFloat(value);
+                      }else if(currentItem.local_data_source){
+                        const delimiterRegex = /[、，,./。\\\s]+/;
+                        let name_field = JSON.parse(currentItem.local_data_source).name_field;
+                        let value_field = JSON.parse(currentItem.local_data_source).value_field;
+                        let ConvertedData = this.getImportExcel(currentItem.alias, name_field, value_field, value.split(delimiterRegex));
+                        if(!ConvertedData){
+                          obj[currentItem.alias] = value
+                          obj.markerlabel.push(currentItem.alias)
+                        }else{
+                          // 先判断如果有逗号分割的数据,就转换成数组
+                          if(ConvertedData.includes(',')){
+                            let current_value = ConvertedData.split(',')
+                            obj[currentItem.alias] = JSON.stringify(current_value)
+                          }else{
+                            obj[currentItem.alias] =ConvertedData
+                          }
+                        }
+                      } else if (currentItem.col_name.includes('datetime_')) {
+                        let a1 = value ? moment(value).format('YYYY-MM-DD') : null
+                        obj[currentItem.alias] = a1 != 'Invalid date' ? moment(value).add(1, 'day').format('YYYY-MM-DD') : this.TimeConversion(value);
+                      } else if (currentItem.col_name=='create_time') {
+                        let a1 = value ? moment(value).format('YYYY-MM-DD HH:mm:ss') : moment().format('YYYY-MM-DD HH:mm:ss')
+                        obj[currentItem.alias] = a1
+                      } else if (currentItem.widget == 'date') {
+                        let a1 =  value ? moment(value).format('YYYY-MM-DD') : null
+                        if (a1 != 'Invalid date') {
+                          obj[currentItem.alias] = moment(value).add(1, 'day').format('YYYY-MM-DD');
+                        } else {
+                          obj[currentItem.alias] = this.TimeConversion(value);
+                        }
+                      } else if (currentItem.widget == 'year') {
+                        obj[currentItem.alias] = moment(value).format('YYYY')
+                      } else {
+                        obj[currentItem.alias] = value;
+                      }
+                    }
+                  }
+                }
+                if(obj&& obj.markerlabel.length>0){
+                  err_data.push(obj)
+                }else{
+                  tmp.push(obj);
+                }
+              }
+              this.data.push(...tmp)
+              this.err_data.push(...err_data)
+            }
+          }
+        } catch (e) {
+          return false;
+        }
+        this.loading = false;
+        };
+        fileReader.readAsBinaryString(file);
+      } catch (err) {
+        this.$message.error("导入失败，请重试!");
+        this.loading = false
+      }
+    },
+    TimeConversion(value) {
+      const regex = /(\d{4})[-,\/、，](\d{1,2})[-,\/、，](\d{1,2})/g;
+      let time = value.replace(regex, function (match, p1, p2, p3) {
+        // 如果月份或日期小于 10，则在前面补充一个 '0'
+        if (p2.length < 2) {
+          p2 = '0' + p2;
+        }
+        if (p3.length < 2) {
+          p3 = '0' + p3;
+        }
+        return p1 + '-' + p2 + '-' + p3;
+      });
+      return time
+    },
+    async batchSubmit() {
+      if (this.data.length === 0) {
+        return this.$message.error("请导入数据后再提交!")
+      }
+      try {
+        let data = this.data.reverse();
+        data.forEach(item=>{
+          for (const key in item) {
+            if (item[key] !== null && typeof item[key] === "object") {
+              item[key] = JSON.stringify(item[key]);
+
+            }
+          }
+        })
+        await this.$resource.createObj("data", data);
+        this.$message.success("提交成功!");
+        this.$emit("close");
+        this.$emit("loadData");
+      } catch (err) {
+        this.$message.error("提交失败，请稍后再试!");
+      }
+    },
+    batchDelete() {
+      if (this.batchDelData.length === 0) {
+        return this.$message.error("请选择要删除的数据!")
+      }
+      this.batchDelData.forEach((i) => {
+        let idx = this.data.findIndex((j) => j === i);
+        this.data.splice(idx, 1);
+      });
+      this.$message.success("删除成功!");
+    }
+  },
+  components: {
+    Form,
+  },
+}
+</script>
+<style scoped>
+.batchCtl {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}
+
+.tips {
+  position: absolute;
+  right: 0;
+  top: 0;
+  color: red;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+.errorColor {
+  color: red;
+}
+</style>
